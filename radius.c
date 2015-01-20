@@ -15,7 +15,7 @@
 #define AUTH_VECTOR_LEN		16
 #define _PATH_DEV_URANDOM	"/dev/urandom"		/* Linux only */
 #define AUTH_PASS_LEN           3 * 16 /*  multiple of 16 */ 
-#define MGMT_POLL_SECRET        "Hardlyasecret"
+#define MGMT_POLL_SECRET        "testing123"
 #define CHAP_VALUE_LENGTH               16
 #define MAX(a,b) (a >= b ? a : b)
 
@@ -187,8 +187,6 @@ int main(int argc, char ** argv)
 	auth->code = 1;
 	auth->id = 1;
 	
-	rc_random_vector(vector);
-	memcpy(auth->vector, vector, AUTH_VECTOR_LEN);
 
 	sockfd = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sockfd < 0) {
@@ -212,6 +210,10 @@ int main(int argc, char ** argv)
 		printf("bind error\n");
 		return -1;
 	}
+
+	rc_random_vector(vector);
+	memcpy(auth->vector, vector, AUTH_VECTOR_LEN);
+
 	*buf++ = 1; /*username*/ 
 	*buf++ = 2 + strlen(username);
 	memcpy(buf, username, strlen(username));
@@ -219,18 +221,6 @@ int main(int argc, char ** argv)
 
 	buf += strlen(username) ;
 
-#if 0
-	*buf++ = 2; /*user password*/
-	padded_length = (strlen(password)+(15)) & ~(15);
-					/*  Record the attribute length */
-	*buf++ = padded_length + 2;
-	buf += strlen(password);
-				      
-
-	/**buf++ = 2 + strlen(password); [>length<] */
-	/*memcpy(buf, password, strlen(password)); [><] */
-#endif
-	
 /* Encrypt the password */
 
 /* Chop off password at AUTH_PASS_LEN */
@@ -249,13 +239,13 @@ int main(int argc, char ** argv)
 	memset ((char *) passbuf, '\0', AUTH_PASS_LEN);
 	memcpy ((char *) passbuf, password, (size_t) length);
 	
-#if 0
 	secretlen = strlen (secret);
 	pw_vector = auth->vector;
+
 	for(i = 0; i < padded_length; i += AUTH_VECTOR_LEN) {
 	    /* Calculate the MD5 digest*/
 	    strcpy ((char *) md5buf, secret);
-	    memcpy ((char *) md5buf + secretlen, vector,
+	    memcpy ((char *) md5buf + secretlen, pw_vector,
 	            AUTH_VECTOR_LEN);
 	    rc_md5_calc (buf, md5buf, secretlen + AUTH_VECTOR_LEN);
 	
@@ -267,7 +257,7 @@ int main(int argc, char ** argv)
 	        *buf++ ^= passbuf[pc];
 	    }
         }
-#endif
+
 	total_length += padded_length + 2 + 20;
 	
 	
@@ -311,7 +301,8 @@ int main(int argc, char ** argv)
 		return -1;
 	}
 	recv_auth = (AUTH_HDR *)recv_buffer;
-	if (recv_auth->code == 1 && recv_auth->id == 1 ) {
+	printf("recv_auth->code = %d, recv_auth->id = %d\n", recv_auth->code, recv_auth->id);
+	if (recv_auth->code == 2 && recv_auth->id == 1 ) {
 		printf("auth successfully\n");
 	}
 	else{
