@@ -14,6 +14,10 @@
 #define TIMEOUT_RC	1
 #define AUTH_VECTOR_LEN		16
 #define _PATH_DEV_URANDOM	"/dev/urandom"		/* Linux only */
+#define AUTH_PASS_LEN           3 * 16 /*  multiple of 16 */ 
+#define MGMT_POLL_SECRET        "Hardlyasecret"
+#define CHAP_VALUE_LENGTH               16
+#define MAX(a,b) (a >= b ? a : b)
 
 
 typedef struct pw_auth_hdr
@@ -157,14 +161,20 @@ int main(int argc, char ** argv)
 	char            recv_buffer[BUFFER_LEN];
 	unsigned char *buf;
 	unsigned char vector[AUTH_VECTOR_LEN];
+	unsigned char md5buf[256];
 	int sockfd;
 	unsigned int length;
-	unsigned char * secret;
-	unsigned int total_length;
+	unsigned char secret[49];
+	unsigned int total_length = 0;
 	unsigned int salen;
+	unsigned char   passbuf[MAX(AUTH_PASS_LEN, CHAP_VALUE_LENGTH)];
+	unsigned char *pw_buf, *pw_vector;
+
 	char *username = "hover";
 	char *password = "wy815417";
 	int padded_length;
+	int secretlen;
+	int pc, i;
 
 	auth = malloc(sizeof(AUTH_HDR));
 	if (auth == (AUTH_HDR *)NULL){
@@ -205,9 +215,11 @@ int main(int argc, char ** argv)
 	*buf++ = 1; /*username*/ 
 	*buf++ = 2 + strlen(username);
 	memcpy(buf, username, strlen(username));
+	total_length += 2 + strlen(username);
 
 	buf += strlen(username) ;
 
+#if 0
 	*buf++ = 2; /*user password*/
 	padded_length = (strlen(password)+(15)) & ~(15);
 					/*  Record the attribute length */
@@ -217,13 +229,53 @@ int main(int argc, char ** argv)
 
 	/**buf++ = 2 + strlen(password); [>length<] */
 	/*memcpy(buf, password, strlen(password)); [><] */
+#endif
+	
+/* Encrypt the password */
 
+/* Chop off password at AUTH_PASS_LEN */
+	*buf++ = 2;
+	length = strlen(password);
+	strcpy(secret, MGMT_POLL_SECRET);
+	if (length > AUTH_PASS_LEN) length = AUTH_PASS_LEN;
+	
+	/* Calculate the padded length */
+	padded_length = (length+(AUTH_VECTOR_LEN-1)) & ~(AUTH_VECTOR_LEN-1);
+	
+	/* Record the attribute length */
+	*buf++ = padded_length + 2;
+	
+	/* Pad the password with zeros */
+	memset ((char *) passbuf, '\0', AUTH_PASS_LEN);
+	memcpy ((char *) passbuf, password, (size_t) length);
+	
+#if 0
+	secretlen = strlen (secret);
+	pw_vector = auth->vector;
+	for(i = 0; i < padded_length; i += AUTH_VECTOR_LEN) {
+	    /* Calculate the MD5 digest*/
+	    strcpy ((char *) md5buf, secret);
+	    memcpy ((char *) md5buf + secretlen, vector,
+	            AUTH_VECTOR_LEN);
+	    rc_md5_calc (buf, md5buf, secretlen + AUTH_VECTOR_LEN);
+	
+	    /* Remeber the start of the digest */
+	    pw_vector = buf;
+	
+	    /* Xor the password into the MD5 digest */
+	    for (pc = i; pc < (i + AUTH_VECTOR_LEN); pc++) {
+	        *buf++ ^= passbuf[pc];
+	    }
+        }
+#endif
+	total_length += padded_length + 2 + 20;
+	
+	
 	sin = (struct sockaddr_in *) & saremote;
 	memset ((char *) sin, '\0', sizeof (saremote));
 	sin->sin_family = AF_INET;
 	sin->sin_addr.s_addr = inet_addr("192.168.0.72");
 	sin->sin_port = htons(1812);
-	total_length = 20 + 2 + 2 + strlen(username) + strlen(password);
 
 	auth->length = htons ((unsigned short) total_length);
 
@@ -233,7 +285,7 @@ int main(int argc, char ** argv)
 			(struct sockaddr *) sin, sizeof (struct sockaddr_in));
 
 		authtime.tv_usec = 0L;
-		authtime.tv_sec = (long) 10;
+		authtime.tv_sec = (long) 1;
 		FD_ZERO (&readfds);
 		FD_SET (sockfd, &readfds);
 		if (select (sockfd + 1, &readfds, NULL, NULL, &authtime) < 0) {
