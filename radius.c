@@ -19,6 +19,7 @@
 #define CHAP_VALUE_LENGTH               16
 #define MAX(a,b) (a >= b ? a : b)
 
+#define CHAP_VALUE_LENGTH		16
 
 typedef struct pw_auth_hdr
 {
@@ -152,8 +153,7 @@ static int rc_check_reply (AUTH_HDR *auth, int bufferlen, char *secret,
 int main(int argc, char ** argv)
 {
 	AUTH_HDR *auth, *recv_auth;
-	struct sockaddr salocal;
-	struct sockaddr saremote;
+	struct sockaddr salocal; struct sockaddr saremote;
 	struct sockaddr_in *sin;
 	struct timeval  authtime;
 	fd_set          readfds;
@@ -170,8 +170,8 @@ int main(int argc, char ** argv)
 	unsigned char   passbuf[MAX(AUTH_PASS_LEN, CHAP_VALUE_LENGTH)];
 	unsigned char *pw_buf, *pw_vector;
 
-	char *username = "hover";
-	char *password = "wy815417";
+	char *username = "user1";
+	char *password = "123456";
 	int padded_length;
 	int secretlen;
 	int pc, i;
@@ -259,12 +259,13 @@ int main(int argc, char ** argv)
         }
 
 	total_length += padded_length + 2 + 20;
-	
+
 	
 	sin = (struct sockaddr_in *) & saremote;
 	memset ((char *) sin, '\0', sizeof (saremote));
 	sin->sin_family = AF_INET;
-	sin->sin_addr.s_addr = inet_addr("192.168.0.72");
+	/*sin->sin_addr.s_addr = inet_addr("192.168.0.99");*/
+	sin->sin_addr.s_addr = inet_addr("115.29.203.202");
 	sin->sin_port = htons(1812);
 
 	auth->length = htons ((unsigned short) total_length);
