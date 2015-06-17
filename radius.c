@@ -6,6 +6,8 @@
 #include <linux/in.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <pthread.h>
 
 #define BUFFER_LEN              8192
 #define BADRESP_RC	-2
@@ -29,6 +31,12 @@ typedef struct pw_auth_hdr
 	u_char          vector[AUTH_VECTOR_LEN];
 	u_char          data[2];
 } AUTH_HDR;
+
+typedef struct acct_arg {
+	char *username;
+	char *passwd;
+	unsigned int id;
+} ACCT_ARG;
 
 static void rc_random_vector (unsigned char *vector)
 {
@@ -68,89 +76,8 @@ static void rc_random_vector (unsigned char *vector)
 
 	return;
 }
-#if 0
 
-static int rc_check_reply (AUTH_HDR *auth, int bufferlen, char *secret,
-			   unsigned char *vector, unsigned char seq_nbr)
-{
-	int             secretlen;
-	int             totallen;
-	unsigned char   calc_digest[AUTH_VECTOR_LEN];
-	unsigned char   reply_digest[AUTH_VECTOR_LEN];
-
-	totallen = ntohs (auth->length);
-
-	secretlen = strlen (secret);
-
-	/* Do sanity checks on packet length */
-	if ((totallen < 20) || (totallen > 4096))
-	{
-		error("rc_check_reply: received RADIUS server response with invalid length");
-		return (BADRESP_RC);
-	}
-
-	/* Verify buffer space, should never trigger with current buffer size and check above */
-	if ((totallen + secretlen) > bufferlen)
-	{
-		error("rc_check_reply: not enough buffer space to verify RADIUS server response");
-		return (BADRESP_RC);
-	}
-	/* Verify that id (seq. number) matches what we sent */
-	if (auth->id != seq_nbr)
-	{
-		error("rc_check_reply: received non-matching id in RADIUS server response");
-		return (BADRESP_RC);
-	}
-
-	/* Verify the reply digest */
-	memcpy ((char *) reply_digest, (char *) auth->vector, AUTH_VECTOR_LEN);
-	memcpy ((char *) auth->vector, (char *) vector, AUTH_VECTOR_LEN);
-	memcpy ((char *) auth + totallen, secret, secretlen);
-	rc_md5_calc (calc_digest, (char *) auth, totallen + secretlen);
-
-#ifdef DIGEST_DEBUG
-	{
-		int i;
-
-		fputs("reply_digest: ", stderr);
-		for (i = 0; i < AUTH_VECTOR_LEN; i++)
-		{
-			fprintf(stderr,"%.2x ", (int) reply_digest[i]);
-		}
-		fputs("\ncalc_digest:  ", stderr);
-		for (i = 0; i < AUTH_VECTOR_LEN; i++)
-		{
-			fprintf(stderr,"%.2x ", (int) calc_digest[i]);
-		}
-		fputs("\n", stderr);
-	}
-#endif
-
-	if (memcmp ((char *) reply_digest, (char *) calc_digest,
-		    AUTH_VECTOR_LEN) != 0)
-	{
-#ifdef RADIUS_116
-		/* the original Livingston radiusd v1.16 seems to have
-		   a bug in digest calculation with accounting requests,
-		   authentication request are ok. i looked at the code
-		   but couldn't find any bugs. any help to get this
-		   kludge out are welcome. preferably i want to
-		   reproduce the calculation bug here to be compatible
-		   to stock Livingston radiusd v1.16.	-lf, 03/14/96
-		 */
-		if (auth->code == PW_ACCOUNTING_RESPONSE)
-			return (OK_RC);
-#endif
-		error("rc_check_reply: received invalid reply digest from RADIUS server");
-		return (BADRESP_RC);
-	}
-
-	return (OK_RC);
-
-}
-#endif
-
-static int radius_pap_auth(char *username, char *password)
+static int radius_pap_auth(char *username, char *password, unsigned int id)
 {
 	AUTH_HDR *auth, *recv_auth;
 	struct sockaddr salocal; struct sockaddr saremote;
@@ -170,8 +97,6 @@ static int radius_pap_auth(char *username, char *password)
 	unsigned char   passbuf[MAX(AUTH_PASS_LEN, CHAP_VALUE_LENGTH)];
 	unsigned char *pw_buf, *pw_vector;
 
-	/*char *username = "user1";*/
-	/*char *password = "123456";*/
 	int padded_length;
 	int secretlen;
 	int pc, i;
@@ -185,12 +110,12 @@ static int radius_pap_auth(char *username, char *password)
 	auth = (AUTH_HDR *)send_buffer;
 	buf = auth->data; 
 	auth->code = 1;
-	auth->id = 1;
+	auth->id = id % 256;
 	
 
 	sockfd = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sockfd < 0) {
-		printf("sockfd failed\n");
+		printf("sockfd failed %s\n", username);
 		return; 
 	}
 
@@ -264,8 +189,8 @@ static int radius_pap_auth(char *username, char *password)
 	sin = (struct sockaddr_in *) & saremote;
 	memset ((char *) sin, '\0', sizeof (saremote));
 	sin->sin_family = AF_INET;
-	/*sin->sin_addr.s_addr = inet_addr("192.168.0.99");*/
-	sin->sin_addr.s_addr = inet_addr("115.29.203.202");
+	sin->sin_addr.s_addr = inet_addr("192.168.0.99");
+	/*sin->sin_addr.s_addr = inet_addr("115.29.203.202");*/
 	sin->sin_port = htons(1812);
 
 	for (;;)
@@ -300,19 +225,21 @@ static int radius_pap_auth(char *username, char *password)
 		return -1;
 	}
 	recv_auth = (AUTH_HDR *)recv_buffer;
-	printf("recv_auth->code = %d, recv_auth->id = %d\n", recv_auth->code, recv_auth->id);
-	if (recv_auth->code == 2 && recv_auth->id == 1 ) {
-		printf("auth successfully\n");
+	/*printf("recv_auth->code = %d, recv_auth->id = %d\n", recv_auth->code, recv_auth->id);*/
+	if (recv_auth->code == 2 && recv_auth->id == id ) {
+		/*printf("auth success %s\n", username);*/
+		return 0;
 	}
 	else{
-		printf("auth failed\n");
+		printf("auth failed %s\n", username);
+		return -1;
 
 	}
 	/*result = rc_check_reply (recv_auth, 8192, secret, vector, 1);*/
 
 }
 
-static int radius_acct_start(char *username)
+static int radius_acct_start(char *username, bool acct, unsigned int id)
 {
 	AUTH_HDR *auth, *recv_auth;
 	struct sockaddr salocal; struct sockaddr saremote;
@@ -338,9 +265,12 @@ static int radius_acct_start(char *username)
 
 	char *session_id = username;
 	int acct_status = 1;
+	int inter_update = 3;
 	unsigned int lvalue;
 	/*unsigned long framed_ip_addr;*/
 	unsigned int framed_ip_addr;
+	unsigned int acct_input_octets;
+	unsigned int acct_output_octets;
 
 	auth = malloc(sizeof(AUTH_HDR));
 	if (auth == (AUTH_HDR *)NULL){
@@ -351,12 +281,12 @@ static int radius_acct_start(char *username)
 	auth = (AUTH_HDR *)send_buffer;
 	buf = auth->data; 
 	auth->code = 4;
-	auth->id = 1;
+	auth->id = id % 256;
 	
 
 	sockfd = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sockfd < 0) {
-		printf("sockfd failed\n");
+		printf("sockfd failed %s\n", username);
 		return; 
 	}
 
@@ -396,7 +326,7 @@ static int radius_acct_start(char *username)
 	/*Frame-ip-address*/ 
 	*buf++ = 8;
 	*buf++ = 2 + sizeof(unsigned int);
-	framed_ip_addr = inet_addr("192.168.0.99");
+	framed_ip_addr = inet_addr("192.168.10.0");
 	/*printf("the ip addr is %s %d %d\n", inet_ntoa(framed_ip_addr), sizeof(framed_ip_addr), sizeof(unsigned int));*/
 	memcpy(buf, &framed_ip_addr, sizeof(unsigned int));
 	buf += sizeof(unsigned int);
@@ -405,9 +335,30 @@ static int radius_acct_start(char *username)
     /*acct-status-type*/ 
 	*buf++ = 40;
 	*buf++ = 2 + sizeof(unsigned int); 
-	lvalue = htonl(acct_status);
+	if (acct == 0) {
+		lvalue = htonl(acct_status);
+	}else {
+		lvalue = htonl(inter_update);
+	}
 	/**buf = 1;*/
 	memcpy(buf, (char *) &lvalue, sizeof(unsigned int));
+	buf += sizeof(unsigned int);
+	total_length += 2 + sizeof(unsigned int);
+
+	/* Acct-Input-Octets*/ 
+	*buf++ = 42;
+	*buf++ = 2 + sizeof(unsigned int); 
+	acct_input_octets = htonl(1000);
+	memcpy(buf, (char *) &acct_input_octets, sizeof(unsigned int));
+	buf += sizeof(unsigned int);
+	total_length += 2 + sizeof(unsigned int);
+
+	/* Acct-Output-Octets*/ 
+	*buf++ = 43;
+	*buf++ = 2 + sizeof(unsigned int); 
+	acct_output_octets = htonl(500);
+	memcpy(buf, (char *) &acct_output_octets, sizeof(unsigned int));
+	buf += sizeof(unsigned int);
 	total_length += 2 + sizeof(unsigned int);
 
 	total_length += 20;
@@ -421,8 +372,8 @@ static int radius_acct_start(char *username)
 	sin = (struct sockaddr_in *) & saremote;
 	memset ((char *) sin, '\0', sizeof (saremote));
 	sin->sin_family = AF_INET;
-	/*sin->sin_addr.s_addr = inet_addr("192.168.0.99");*/
-	sin->sin_addr.s_addr = inet_addr("115.29.203.202");
+	sin->sin_addr.s_addr = inet_addr("192.168.0.99");
+	/*sin->sin_addr.s_addr = inet_addr("115.29.203.202");*/
 	sin->sin_port = htons(1813);
 
 	for (;;)
@@ -457,24 +408,62 @@ static int radius_acct_start(char *username)
 		return -1;
 	}
 	recv_auth = (AUTH_HDR *)recv_buffer;
-	if (recv_auth->code == 5 && recv_auth->id == 1 ) {
-		printf("acct successfully\n");
-	}
-	else{
+	if (recv_auth->code == 5 && recv_auth->id == id ) {
+		/*printf("acct successfully\n");*/
+		return 0;
+	} else{
 		printf("acct failed\n");
+		return -1;
 
 	}
 	/*result = rc_check_reply (recv_auth, 8192, secret, vector, 1);*/
 
 }
 
+static void radius_acct(ACCT_ARG *acct_arg)
+{
+	char *username = acct_arg->username;
+	char *passwd   = acct_arg->passwd;
+	unsigned int id = acct_arg->id;
+	printf("the id is %d\n", id);
+	if (radius_pap_auth(username, passwd, id) == 0) {
+			radius_acct_start(username, 0, id);
+			while(1) {
+				sleep(60);
+				radius_acct_start(username, 1, id);
+			}
+		}
+}
+
 int main(int argc, char **argv)
 {
-	char *username = "user1";
+	char *name = "user";
 	char *passwd   = "123456";
+	int i;
+	char buf[10];
+	ACCT_ARG acct_arg;
+	
+	for(i = 0; i < 20000; i++) {
+		sprintf(buf, "%s%d", name, i);
+		acct_arg.username = buf;
+		acct_arg.passwd = passwd;
+		acct_arg.id	= i;
 
-	radius_pap_auth(username, passwd);
-	radius_acct_start(username);
+		/*printf("the username is %s\n", buf);*/
+		pthread_t thread_id;
+		if(pthread_create(&thread_id, NULL, (void *)radius_acct, &acct_arg) < 0)
+		{
+			printf("create thread failed\n");
+			continue;
+		}
+		/*radius_acct(&acct_arg);*/
+	}
+	while(1)
+	{
+		sleep(5);
+		/*printf("-----------\n");*/
+	}
+
 }
 
 
