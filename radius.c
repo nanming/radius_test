@@ -186,14 +186,14 @@ static int radius_pap_auth(char *username, char *password, unsigned int id)
 	/*sin->sin_addr.s_addr = inet_addr("115.29.203.202");*/
 	sin->sin_port = htons(1812);
 
-	/*for (j = 0; j < 3; j++)*/
-	for (;;)
+	for (j = 0; j < 3; j++)
+	/*for (;;)*/
 	{
 		sendto (sockfd, (char *) auth, (unsigned int) total_length, (int) 0,
 			(struct sockaddr *) sin, sizeof (struct sockaddr_in));
 
 		authtime.tv_usec = 0L;
-		authtime.tv_sec = (long) 1;
+		authtime.tv_sec = (long) 2;
 		FD_ZERO (&readfds);
 		FD_SET (sockfd, &readfds);
 		if (select (sockfd + 1, &readfds, NULL, NULL, &authtime) < 0) {
@@ -204,35 +204,38 @@ static int radius_pap_auth(char *username, char *password, unsigned int id)
 			close (sockfd);
 			return -1;
 		}
-		if (FD_ISSET (sockfd, &readfds))
-			break;
-	}
-	salen = sizeof (saremote);
-	length = recvfrom (sockfd, (char *) recv_buffer,
-			   (int) sizeof (recv_buffer),
-			   (int) 0, &saremote, &salen);
+		if (FD_ISSET (sockfd, &readfds)){
+			salen = sizeof (saremote);
+			length = recvfrom (sockfd, (char *) recv_buffer,
+					   (int) sizeof (recv_buffer),
+					   (int) 0, &saremote, &salen);
 
-	if (length <= 0)
-	{
-		close (sockfd);
-		memset (secret, '\0', sizeof (secret));
-		return -1;
-	}
-	recv_auth = (AUTH_HDR *)recv_buffer;
-	/*printf("recv_auth->code = %d, recv_auth->id = %d\n", recv_auth->code, recv_auth->id);*/
-	if (recv_auth->code == 2 && recv_auth->id == auth->id ) {
-		close (sockfd);
-		printf("auth success %s\n", username);
-		return 0;
-	}
-	else{
-		close (sockfd);
-		printf("auth failed %s\n", username);
-		return -1;
+			if (length <= 0)
+			{
+				close (sockfd);
+				memset (secret, '\0', sizeof (secret));
+				return -1;
+			}
+			recv_auth = (AUTH_HDR *)recv_buffer;
+			/*printf("recv_auth->code = %d, recv_auth->id = %d\n", recv_auth->code, recv_auth->id);*/
+			if (recv_auth->code == 2 && recv_auth->id == auth->id ) {
+				close (sockfd);
+				/*printf("auth success %s\n", username);*/
+				return 0;
+			}
+			else{
+				close (sockfd);
+				printf("auth failed %s\n", username);
+				return -1;
 
+			}
+			/*break;*/
+			return 0;
+		}
 	}
-	/*result = rc_check_reply (recv_auth, 8192, secret, vector, 1);*/
+	printf("auth timeout %s\n", username);
 
+	return -1;
 }
 
 static int radius_acct_start(char *username, bool acct, unsigned int id)
@@ -372,14 +375,14 @@ static int radius_acct_start(char *username, bool acct, unsigned int id)
 	/*sin->sin_addr.s_addr = inet_addr("115.29.203.202");*/
 	sin->sin_port = htons(1813);
 
-	/*for (j = 0; j < 3; j++)*/
-	for (;;)
+	for (j = 0; j < 3; j++)
+	/*for (;;)*/
 	{
 		sendto (sockfd, (char *) auth, (unsigned int) total_length, (int) 0,
 			(struct sockaddr *) sin, sizeof (struct sockaddr_in));
 
 		authtime.tv_usec = 0L;
-		authtime.tv_sec = (long) 1;
+		authtime.tv_sec = (long) 2;
 		FD_ZERO (&readfds);
 		FD_SET (sockfd, &readfds);
 		if (select (sockfd + 1, &readfds, NULL, NULL, &authtime) < 0) {
@@ -390,33 +393,36 @@ static int radius_acct_start(char *username, bool acct, unsigned int id)
 			close (sockfd);
 			return -1;
 		}
-		if (FD_ISSET (sockfd, &readfds))
-			break;
-	}
-	salen = sizeof (saremote);
-	length = recvfrom (sockfd, (char *) recv_buffer,
-			   (int) sizeof (recv_buffer),
-			   (int) 0, &saremote, &salen);
+		if (FD_ISSET (sockfd, &readfds)){
+			salen = sizeof (saremote);
+			length = recvfrom (sockfd, (char *) recv_buffer,
+					   (int) sizeof (recv_buffer),
+					   (int) 0, &saremote, &salen);
 
-	if (length <= 0)
-	{
-		close (sockfd);
-		memset (secret, '\0', sizeof (secret));
-		close (sockfd);
-		return -1;
+			if (length <= 0)
+			{
+				close (sockfd);
+				memset (secret, '\0', sizeof (secret));
+				close (sockfd);
+				return -1;
+			}
+			recv_auth = (AUTH_HDR *)recv_buffer;
+			if (recv_auth->code == 5 && recv_auth->id == auth->id) {
+				/*printf("acct successfully\n");*/
+				close (sockfd);
+				return 0;
+			} else{
+				printf("acct failed\n");
+				close (sockfd);
+				return -1;
+			}
+			return 0;
+			/*break;*/
+		}
 	}
-	recv_auth = (AUTH_HDR *)recv_buffer;
-	if (recv_auth->code == 5 && recv_auth->id == auth->id) {
-		/*printf("acct successfully\n");*/
-		close (sockfd);
-		return 0;
-	} else{
-		printf("acct failed\n");
-		close (sockfd);
-		return -1;
+	printf("acct timeout %s\n", username);
 
-	}
-	/*result = rc_check_reply (recv_auth, 8192, secret, vector, 1);*/
+	return -1;
 
 }
 
